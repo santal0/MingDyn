@@ -1,0 +1,10 @@
+node_modules/
+dist/
+public/data/
+public/Data.xlsx
+test-results/
+playwright-report/
+__pycache__/
+*.pyc
+*.tsbuildinfo
+.DS_Store
