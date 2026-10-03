@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { Catalogue, RawSource } from '../src/types'
 
 test('overview, assets and original workbook work under the Pages subpath', async ({
   page,
@@ -8,7 +9,10 @@ test('overview, assets and original workbook work under the Pages subpath', asyn
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('./')
   await expect(page.getByRole('heading', { name: '一朝制度，循迹而读。' })).toBeVisible()
-  await expect(page.locator('.stat-card').first()).toContainText('554')
+  const catalogue: Catalogue = await (await request.get('data/catalogue.json')).json()
+  await expect(page.locator('.stat-card').first()).toContainText(
+    String(catalogue.meta.stats.offices),
+  )
   const download = await request.get('Data.xlsx')
   expect(download.ok()).toBeTruthy()
   expect((await download.body()).subarray(0, 2).toString()).toBe('PK')
@@ -28,7 +32,10 @@ test('search crosses office, era and family records, with useful empty state', a
 
 test('institution filters survive reload and source links reach original cells', async ({
   page,
+  request,
 }) => {
+  const catalogue: Catalogue = await (await request.get('data/catalogue.json')).json()
+  const titleCell = catalogue.offices.find((office) => office.title === '户部尚书')!.sources.title
   await page.goto('./#/institutions')
   await page.getByRole('combobox', { name: '机构分类' }).selectOption('中央机构')
   await page.getByRole('textbox', { name: '筛选官职' }).fill('户部')
@@ -39,9 +46,9 @@ test('institution filters survive reload and source links reach original cells',
   await expect(page.getByRole('textbox', { name: '筛选官职' })).toHaveValue('户部')
   await page.getByRole('link', { name: '户部尚书', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('户部尚书')
-  await page.getByRole('link', { name: 'B70', exact: true }).click()
+  await page.getByRole('link', { name: titleCell, exact: true }).click()
   await expect(page.locator('.focused-cell')).toContainText('户部尚书')
-  await expect(page.locator('.focused-cell')).toContainText('Sheet1!B70')
+  await expect(page.locator('.focused-cell')).toContainText(`${catalogue.meta.sheet}!${titleCell}`)
 })
 
 test('comparison has a three-item limit and an accessible close action', async ({ page }) => {
@@ -86,14 +93,21 @@ test('generation character search and exam links use real records', async ({ pag
   await expect(page.locator('.office-table')).toContainText('史馆修撰')
 })
 
-test('source issues retain duplicate records and aliases', async ({ page }) => {
+test('source issues retain duplicate records and aliases', async ({ page, request }) => {
+  const catalogue: Catalogue = await (await request.get('data/catalogue.json')).json()
+  const source: RawSource = await (await request.get('data/source.json')).json()
+  const dutiesCell = catalogue.offices.find((office) => office.title === '户部尚书')!.sources.duties
+  const mergedRange = source.merges.find((range) => range.startsWith(`${dutiesCell}:`))!
+  const nextRowCell = dutiesCell.replace(/\d+/, (number) => String(Number(number) + 1))
   await page.goto('./#/sources?tab=issues')
   await page.getByRole('combobox', { name: '问题类型' }).selectOption('人名异写')
-  await expect(page.locator('.issue-card')).toHaveCount(2)
+  await expect(page.locator('.issue-card')).toHaveCount(
+    catalogue.issues.filter((i) => i.kind === '人名异写').length,
+  )
   await page.getByRole('combobox', { name: '问题类型' }).selectOption('重复条目')
   await expect(page.locator('.issue-grid')).toContainText('尚宝司')
-  await page.goto('./#/sources?cell=F71')
-  await expect(page.getByText('所属合并区域：F70:F111')).toBeVisible()
+  await page.goto(`./#/sources?cell=${nextRowCell}`)
+  await expect(page.getByText(`所属合并区域：${mergedRange}`)).toBeVisible()
   await page.getByRole('link', { name: '查看起始单元格' }).click()
   await expect(page.locator('.focused-cell')).toContainText('财政')
 })
